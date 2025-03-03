@@ -1,0 +1,94 @@
+
+
+
+class Realization():
+    def __init__(self, max_steps, ego_index = 0):
+        self.network = None
+        self.objects = None
+        self.max_steps = max_steps
+        self.ego_index = ego_index
+        self.trajectory = []
+        
+        
+    def get_ego(self):
+        
+        try: return self.objects[self.ego_index]
+        except: return Exception(f"Error: Ego index {self.ego_index} not found in objects list")
+    
+    def get_object(self, object_index):
+        try: return self.objects[object_index]
+        except: return Exception(f"Error: Object index {object_index} not found in objects list")
+
+    def get_object_state(self, object_index, step):
+        if object_index >= 0 and object_index < len(self.objects):
+            return self.objects[object_index].get_state(step)
+        else:
+            return Exception(f"Error: Object index {object_index} not found in objects list")
+        
+    def get_ego_state(self, step):
+        return self.get_ego().get_state(step)
+    
+    def get_world_state(self, step):
+        states = []
+        for i in range(len(self.objects)):
+            states.append(self.get_object_state(i, step))
+        return WorldState(states, step, self.ego_index)
+        
+    def set_ego_index(self, ego_index):
+        if ego_index >= 0 and ego_index < len(self.objects):
+            self.ego_index = ego_index
+        else:
+            return Exception(f"Error: Proposed ego index {ego_index} out of list bounds")
+        
+    def get_ego_index(self):
+        return self.ego_index
+
+        
+class RealizationObject():
+    def __init__(self, mesh, dimensions, object_type):
+        self.mesh = mesh
+        self.dimensions = dimensions
+        self.object_type = object_type
+        self.trajectory = []
+    def get_state(self, step):
+        try:
+            return self.trajectory[step]
+        except:
+            return Exception(f"Error: Step {step} not found in object trajectory")
+    
+    
+class ObjectState():
+    def __init__(self, position, velocity, orientation, step):
+        self.position = position
+        self.velocity = velocity
+        self.orientation = orientation
+        self.step = step
+    @property
+    def orientation_trimesh(self):
+        return self.orientation._trimeshEulerAngles()
+        
+    
+class WorldState():
+    def __init__(self, states, step, ego_index):
+        self.ego_index = ego_index
+        self.states = states
+        self.step = step
+        
+    def get_ego_state(self):
+        try: return self.states[self.ego_index]
+        except: return Exception(f"Error: Ego index {self.ego_index} not found in states list")
+    
+    def get_object_state(self, object_index):
+        try: return self.states[object_index]
+        except: return Exception(f"Error: Object index {object_index} not found in states list")
+        
+        
+        
+    
+    
+
+    
+    
+
+
+    
