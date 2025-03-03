@@ -1,6 +1,7 @@
 from trimesh.transformations import compose_matrix
 from scenic.core.regions import MeshVolumeRegion, EmptyRegion
 import shapely
+from realization import Realization
 """
 keys of realization: 
 network: scenic object for road network
@@ -16,52 +17,6 @@ orientation_trimesh: " " [(yaw, pitch, roll), (yaw, pitch, roll)...]
 velocity: list of velocities of each object [(x, y, z), (x, y, z)...]
 step: corresponding timestep
 """
-CAR_KG = 1670
-
-
-def rule2_spec(realization):  # check if ego collides with adv, if so, calculate the kinetic energy and add to result
-    trajectory = realization["trajectory"]
-    max_steps = realization["max_steps"]
-    object_types = realization["object_type"]
-    num_objects = len(object_types)
-    ego_mesh = realization["mesh"][0]
-
-    result = 0
-
-    for i in range(max_steps):
-        ego_mesh_copy = ego_mesh.copy()
-        state = trajectory[i]
-        ego_pos = state["position"][0]
-        ego_trimesh_orient = state["orientation_trimesh"][0]
-        ego_matrix = compose_matrix(angles=ego_trimesh_orient, translate=ego_pos)
-        ego_mesh_copy.apply_transform(ego_matrix)
-        for j in range(1, num_objects):
-            adv_mesh = realization["mesh"][j]
-            adv_mesh_copy = adv_mesh.copy()
-            adv_pos = state["position"][j]
-            adv_trimesh_orient = state["orientation_trimesh"][j]
-            adv_matrix = compose_matrix(angles=adv_trimesh_orient, translate=adv_pos)
-            adv_mesh_copy.apply_transform(adv_matrix)
-            intersection_region = ego_mesh_copy.bounding_box.intersection(
-                adv_mesh_copy.bounding_box
-            )
-            if intersection_region.volume > 0:
-                ego_velocity = state["velocity"][0]
-                adv_velocity = state["velocity"][j]
-                relative_velocity = [
-                    ego_velocity[i] - adv_velocity[i] for i in range(3)
-                ]
-                result += CAR_KG * sum([v**2 for v in relative_velocity])/2
-    
-    return result
-
-
-def rule_vehicle_collision(realization):
-    return max(rule_collision(realization, "Car"), rule_collision(realization, "Truck"))
-
-def rule_vru_collision(realization):
-    return max(rule_collision(realization, "Pedestrian"), rule_collision(realization, "Bicycle"))
-
 
 def rule_collision(realization, object_type="Pedestrian"):
     trajectory = realization["trajectory"]
@@ -98,31 +53,46 @@ def rule_collision(realization, object_type="Pedestrian"):
     return max_violation
     
     
-    
-    
-def rule_stay_in_drivable_area(realization):
-    network = realization["network"]
-    drivable_region = network.drivableRegion
-    trajectory = realization["trajectory"]
-    max_steps = realization["max_steps"]
-    ego_mesh = realization["mesh"][0]
-    ego_dimension = realization["dimensions"][0]
+def rule_collision(realization, object_type="Pedestrian"):
+    # re-write the function to use the new realization object
+    max_steps = realization.max_steps
+    ego = realization.get_ego()
+    objects = [obj for obj in realization.objects_non_ego if obj.object_type == object_type]
     max_violation = 0
     
-    for i in range(max_steps):
-        ego_pos = trajectory[i]["position"][0]
-        ego_orientation = trajectory[i]["orientation"][0]
-        ego_region = MeshVolumeRegion(mesh=ego_mesh, dimensions=ego_dimension, position=ego_pos, rotation=ego_orientation)
-        ego_polygon = ego_region.boundingPolygon
-        difference = ego_polygon.difference(drivable_region)
-        if not isinstance(difference, EmptyRegion):
-            max_violation = max(max_violation, difference.area)
-
+    for i in range(max_steps-1):
+        ego_state = ego.get_state(i)
+        ego_region = MeshVolumeRegion(mesh=ego.mesh, dimensions=ego.dimensions, position=ego_state.position, rotation=ego_state.orientation)
+        ego_velocity_before = ego_state.velocity
+        ego_velocity_after = ego.get_state(i+1).velocity
+        for obj in objects:
+            obj_state = obj.get_state(i)
+            obj_region = MeshVolumeRegion(mesh=obj.mesh, dimensions=obj.dimensions, position=obj_state.position, rotation=obj_state.orientation)
+            obj_velocity_before = obj_state.velocity
+            obj_velocity_after = obj.get_state(i+1).velocity
+            if ego_region.intersects(obj_region):
+                ego_delta = ego_velocity_after - ego_velocity_before
+                obj_delta = obj_velocity_after - obj_velocity_before
+                
+                ego_delta_norm = ego_delta.norm()
+                obj_delta_norm = obj_delta.norm()
+                
+                
+                max_violation = max(max_violation, ego_delta_norm, obj_delta_norm)
+        
     return max_violation
+        
+def rule_vehicle_collision(realization):
+    return max(rule_collision(realization, "Car"), rule_collision(realization, "Truck"))
+
+def rule_vru_collision(realization):
+    return max(rule_collision(realization, "Pedestrian"), rule_collision(realization, "Bicycle"))
+    
+    
 
 
 
-def rule_stay_in_drivable_area_distance(realization):
+def rule_stay_in_drivable_area(realization):
     network = realization["network"]
     drivable_region = network.drivableRegion
     trajectory = realization["trajectory"]
@@ -141,6 +111,23 @@ def rule_stay_in_drivable_area_distance(realization):
         max_violation = max(max_violation, distance)
 
     return max_violation
+
+
+
+def rule_stay_in_drivable_area(realization):
+    network = realization.network
+    drivable_region = network.drivableRegion
+    ego = realization.get_ego()
+    max_violation = 0
+    
+    for state in ego.trajectory:
+        ego_region = MeshVolumeRegion(mesh=ego.mesh, dimensions=ego.dimensions, position=state.position, rotation=state.orientation)
+        ego_polygon = ego_region.boundingPolygon.polygons
+        drivable_polygon = drivable_region.polygons
+        distance = shapely.hausdorff_distance(ego_polygon, drivable_polygon)
+        max_violation = max(max_violation, distance)
+        
+
 
 
 
@@ -182,6 +169,27 @@ def vru_clearance(realization, on_road=False):
     return max_violation
 
 
+def vru_clearance(realization, on_road=False, threshold = 2):
+    ego = realization.get_ego()
+    objects = [obj for obj in realization.objects_non_ego if obj.object_type in ["Pedestrian", "Bicycle"]]
+    drivable_region = realization.network.drivableRegion
+    max_violation = 0
+    
+    for state in ego.trajectory:
+        ego_region = MeshVolumeRegion(mesh=ego.mesh, dimensions=ego.dimensions, position=state.position, rotation=state.orientation)
+        for obj in objects:
+            obj_state = obj.get_state(state.step)
+            obj_region = MeshVolumeRegion(mesh=obj.mesh, dimensions=obj.dimensions, position=obj_state.position, rotation=obj_state.orientation)
+            ego_polygon = ego_region.boundingPolygon.polygons
+            obj_polygon = obj_region.boundingPolygon.polygons
+            distance = ego_polygon.distance(obj_polygon)
+            violation = threshold - distance
+            if (on_road and drivable_region.intersects(obj_region)) or (not on_road and not drivable_region.intersects(obj_region)):
+                max_violation = max(max_violation, violation)
+    return max_violation
+    
+
+
 
 def vru_clearance_on_road(realization):
     return vru_clearance(realization, on_road=True)
@@ -218,6 +226,28 @@ def vru_acknowledgement(realization, proximity=5, deceleration=0.2,  timesteps=1
             
     return max_violation
                 
+                
+                
+def vru_acknowledgement(realization, proximity=5, deceleration=0.2,  timesteps=10):
+    ego = realization.get_ego()
+    objects = realization.objects_non_ego
+    max_violation = 0
+    
+    for i in range(realization.max_steps - timesteps):
+        ego_state = ego.get_state(i)
+        ego_future_state = ego.get_state(i+timesteps)
+        ego_velocity = ego_state.velocity
+        ego_next_velocity = ego_future_state.velocity
+        ego_future_pos = ego_future_state.position
+        for obj in objects:
+            adv_current_pos = obj.get_state(i).position
+            distance = (ego_future_pos - adv_current_pos).norm()
+            if distance < proximity:
+                ego_velocity_norm = ego_velocity.norm()
+                ego_next_velocity_norm = ego_next_velocity.norm()
+                violation = deceleration - (ego_velocity_norm - ego_next_velocity_norm)
+                max_violation = max(max_violation, violation)
+    return max_violation
 
         
                 
