@@ -14,8 +14,8 @@ behavior do_nothing():
         wait
 
  
-ego = new Car with behavior simple()
-adv = new Car with behavior do_nothing(), ahead of ego by 10
+ego = new Car with behavior AutopilotBehavior()
+adv = new Car with behavior FollowLaneBehavior()
 
 
 import bench

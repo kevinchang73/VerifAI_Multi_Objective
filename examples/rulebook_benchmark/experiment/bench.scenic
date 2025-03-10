@@ -1,6 +1,6 @@
 from scenic.domains.driving.roads import Network
 model scenic.simulators.carla.model
-from realization import Realization, RealizationObject, ObjectState
+from realization import Realization, RealizationObject, State
 
 behavior bench():
 
@@ -20,12 +20,11 @@ behavior bench():
 
         for i in range(len(objects)):
             obj = realization.objects[i]
-            obj.trajectory.append(ObjectState(obj.position, obj.velocity, obj.orientation, step))
+            object = objects[i]
+            obj.trajectory.append(State(object.position, object.velocity, object.orientation, step))
 
         step += 1
-        #if step == max_steps:
-        #    break
-        
+
         wait
 
 

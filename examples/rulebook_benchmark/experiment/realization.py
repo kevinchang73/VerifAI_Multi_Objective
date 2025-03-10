@@ -16,12 +16,24 @@ class Realization():
             return self.objects[object_index]
         except IndexError:
             raise Exception(f"Error: Object index {object_index} not found in objects list")
+        
+    def get_object_non_ego(self, object_index):
+        try:
+            return self.objects_non_ego[object_index]
+        except IndexError:
+            raise Exception(f"Error: Object index {object_index} not found in non-ego objects list")
 
     def get_object_state(self, object_index, step):
         if 0 <= object_index < len(self.objects):
             return self.objects[object_index].get_state(step)
         else:
             raise Exception(f"Error: Object index {object_index} not found in objects list")
+        
+    def get_object_non_ego_state(self, object_index, step):
+        if 0 <= object_index < len(self.objects_non_ego):
+            return self.objects_non_ego[object_index].get_state(step)
+        else:
+            raise Exception(f"Error: Object index {object_index} not found in non-ego objects list")
 
     def get_ego_state(self, step):
         return self.get_ego().get_state(step)
@@ -68,7 +80,7 @@ class RealizationObject():
             raise Exception(f"Error: Step {step} not found in object trajectory")
 
 
-class ObjectState():
+class State():
     def __init__(self, position, velocity, orientation, step):
         self.position = position
         self.velocity = velocity
@@ -110,3 +122,4 @@ class WorldState():
 
 
 
+# TODO: timesteps vs timestamps: multiple agents may be off sync/ does scenic use timestamps?
